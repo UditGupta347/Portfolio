@@ -1,349 +1,686 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
-import { Cpu, Database, Globe, Terminal, Orbit, Sparkles } from 'lucide-react';
+import React, { useState, useRef, useEffect, memo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Cpu, Database, Globe, Terminal, Sparkles, Zap } from 'lucide-react';
 
 const skillCategories = [
   {
     name: 'Frontend',
     icon: Globe,
     color: '#00f0ff',
+    shadowColor: 'rgba(0, 240, 255, 0.4)',
     description: 'Immersive UI/UX Engineering with high-performance frameworks.',
-    skills: ['React', 'TypeScript', 'Tailwind CSS', 'FramerMotion']
+    skills: [
+      { name: 'React', level: 95 },
+      { name: 'TypeScript', level: 88 },
+      { name: 'Tailwind CSS', level: 92 },
+      { name: 'FramerMotion', level: 85 },
+    ]
   },
   {
     name: 'Backend',
     icon: Database,
     color: '#8b5cf6',
+    shadowColor: 'rgba(139, 92, 246, 0.4)',
     description: 'Scalable server-side architectures and real-time data pipelines.',
-    skills: ['Node.js', 'Express', 'MongoDB', 'TypeScript', 'Socket.io']
+    skills: [
+      { name: 'Node.js', level: 90 },
+      { name: 'Express', level: 88 },
+      { name: 'MongoDB', level: 85 },
+      { name: 'TypeScript', level: 88 },
+      { name: 'Socket.io', level: 78 },
+    ]
   },
   {
     name: 'Intelligence',
     icon: Cpu,
     color: '#ff006e',
+    shadowColor: 'rgba(255, 0, 110, 0.4)',
     description: 'Integrating LLMs, Neural Networks, and AI-driven automation.',
-    skills: ['GenAI', 'OpenAI', 'Gemini', 'OpenAI API', 'Groq']
+    skills: [
+      { name: 'GenAI', level: 82 },
+      { name: 'OpenAI', level: 90 },
+      { name: 'Gemini', level: 86 },
+      { name: 'OpenAI API', level: 92 },
+      { name: 'Groq', level: 80 },
+    ]
   },
   {
     name: 'Ecosystem',
     icon: Terminal,
     color: '#00ff88',
+    shadowColor: 'rgba(0, 255, 136, 0.4)',
     description: 'Modern DevOps workflows and cloud infrastructure mastery.',
-    skills: ['Git', 'Docker', 'AWS', 'Vercel', 'Linux', 'Github Actions', 'NPM', 'Vite']
+    skills: [
+      { name: 'Git', level: 95 },
+      { name: 'Docker', level: 82 },
+      { name: 'AWS', level: 78 },
+      { name: 'Vercel', level: 90 },
+      { name: 'Linux', level: 85 },
+      { name: 'Github Actions', level: 80 },
+      { name: 'NPM', level: 92 },
+      { name: 'Vite', level: 88 },
+    ]
   }
 ];
 
-interface FloatingSkillProps {
-  name: string;
-  color: string;
-  index: number;
-  isActive: boolean;
-}
+/*
+ * PERFORMANCE STRATEGY:
+ * - CSS @keyframes → all CONTINUOUS/INFINITE animations (scan, rotate, pulse, float, stream)
+ *   These run on the GPU compositor thread, zero JS overhead.
+ * - Framer Motion → all ONE-SHOT interactions (entrance, expand, dim, hover, progress bar fill)
+ *   These fire once per interaction and stop — they give springy/organic feel with no perf cost.
+ */
+const cssAnimations = `
+  @keyframes sg-scan {
+    0% { transform: translateY(-100%) translateZ(0); }
+    100% { transform: translateY(100%) translateZ(0); }
+  }
+  @keyframes sg-rotate {
+    from { transform: rotate(0deg) translateZ(0); }
+    to { transform: rotate(360deg) translateZ(0); }
+  }
+  @keyframes sg-pulse-dot {
+    0%, 100% { transform: scale(1) translateZ(0); opacity: 0.7; }
+    50% { transform: scale(1.3) translateZ(0); opacity: 1; }
+  }
+  @keyframes sg-pulse-opacity {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+  @keyframes sg-border-pulse {
+    0%, 100% { opacity: 0.3; transform: scaleX(0.5) translateZ(0); }
+    50% { opacity: 1; transform: scaleX(1) translateZ(0); }
+  }
+  @keyframes sg-bg-pulse {
+    0%, 100% { transform: scale(1) translateZ(0); opacity: 0.3; }
+    50% { transform: scale(1.2) translateZ(0); opacity: 0.6; }
+  }
+  @keyframes sg-shine-bar {
+    0% { transform: translateX(-100%) translateZ(0); }
+    100% { transform: translateX(200%) translateZ(0); }
+  }
+  @keyframes sg-glow-soft {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.6; }
+  }
+  @keyframes sg-float-particle {
+    0% { transform: translateY(0) translateZ(0); opacity: 0; }
+    20% { opacity: 0.5; }
+    100% { transform: translateY(-120px) translateZ(0); opacity: 0; }
+  }
+  @keyframes sg-stream {
+    0% { transform: scaleX(0) translateZ(0); opacity: 0; }
+    50% { transform: scaleX(1) translateZ(0); opacity: 0.4; }
+    100% { transform: scaleX(0) translateZ(0); opacity: 0; }
+  }
+  @keyframes sg-orb {
+    0%, 100% { transform: scale(1) translateZ(0); opacity: 0.4; }
+    50% { transform: scale(1.2) translateZ(0); opacity: 0.7; }
+  }
+  .sg-gpu { will-change: transform, opacity; transform: translateZ(0); }
+`;
 
-function FloatingSkill({ name, color, index, isActive }: FloatingSkillProps) {
-  const randomX = useMemo(() => Math.random() * 60 - 30, []);
-  const randomY = useMemo(() => Math.random() * 60 - 30, []);
-  const duration = useMemo(() => 4 + Math.random() * 6, []);
+/* ─── Pre-computed background data (no random calls during render) ─── */
+const dataStreams = Array.from({ length: 8 }, (_, i) => ({
+  width: 80 + (i * 17) % 120,
+  left: 10 + (i * 11) % 70,
+  top: 10 + (i * 13) % 75,
+  duration: 3 + (i % 4),
+  delay: i * 0.7,
+  colorIdx: i % 4,
+}));
 
+const particlePool = Array.from({ length: 8 }, (_, i) => ({
+  char: ['0', '1', '<', '>', '/', '{', '}', ';'][i % 8],
+  left: 5 + (i * 12) % 85,
+  top: 20 + (i * 11) % 60,
+  duration: 5 + (i % 4) * 2,
+  delay: i * 0.6,
+}));
+
+/* ─── Skill Pill — FM for entrance spring, CSS for continuous scan ─── */
+const SkillPill = memo(function SkillPill({
+  name, color, index, categoryIndex
+}: {
+  name: string; color: string; index: number; categoryIndex: number;
+}) {
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0 }}
-      animate={{
-        opacity: isActive ? 1 : 0.6,
-        scale: isActive ? 1.3 : 1,
-        x: isActive ? randomX * 3.5 : randomX,
-        y: isActive ? randomY * 3.5 : randomY,
-      }}
-      whileHover={{ scale: 1.5, zIndex: 100, opacity: 1 }}
-      className="px-5 py-2.5 rounded-2xl bg-black/90 backdrop-blur-2xl border border-white/20 text-sm mono cursor-pointer whitespace-nowrap font-black tracking-tight"
-      style={{
-        borderColor: isActive ? `${color}` : 'rgba(255,255,255,0.3)',
-        color: isActive ? '#fff' : '#aaa',
-        boxShadow: isActive ? `0 0 40px ${color}60, inset 0 0 15px ${color}30` : '0 10px 30px rgba(0,0,0,0.8)',
-        background: isActive ? `linear-gradient(135deg, ${color}30, transparent)` : 'rgba(15,15,15,0.9)'
-      }}
+      initial={{ opacity: 0, x: -80, rotateY: -90, filter: 'blur(12px)' }}
+      animate={{ opacity: 1, x: 0, rotateY: 0, filter: 'blur(0px)' }}
       transition={{
-        x: { duration, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" },
-        y: { duration: duration * 1.3, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" },
-        scale: { type: 'spring', stiffness: 400, damping: 10 }
+        delay: 0.08 * index + 0.15 * categoryIndex,
+        duration: 0.7,
+        type: 'spring',
+        stiffness: 120,
+        damping: 14
       }}
+      whileHover={{ scale: 1.15, y: -8, zIndex: 50 }}
+      className="relative group cursor-pointer"
+      style={{ perspective: '800px' }}
     >
-      {name}
+      {/* Hover glow — pure CSS */}
+      <div
+        className="absolute -inset-1 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10"
+        style={{
+          background: `linear-gradient(135deg, ${color}, transparent, ${color})`,
+          filter: 'blur(8px)',
+        }}
+      />
+
+      <div
+        className="relative px-5 py-3 rounded-xl overflow-hidden transition-all duration-400"
+        style={{
+          background: `linear-gradient(135deg, rgba(15,15,25,0.95), rgba(15,15,25,0.8))`,
+          border: `1px solid rgba(255,255,255,0.1)`,
+          boxShadow: `0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)`,
+        }}
+      >
+        {/* Holographic scan line — CSS animation (was FM infinite loop = lag source) */}
+        <div
+          className="absolute inset-0 pointer-events-none sg-gpu"
+          style={{
+            background: `linear-gradient(180deg, transparent 0%, ${color}15 50%, transparent 100%)`,
+            height: '200%',
+            animation: `sg-scan 2.5s linear infinite`,
+            animationDelay: `${index * 0.3}s`,
+          }}
+        />
+
+        <span
+          className="relative z-10 mono text-sm font-bold tracking-wider transition-all duration-300 group-hover:text-white"
+          style={{ color }}
+        >
+          {name}
+        </span>
+
+        {/* Corner accents */}
+        <div className="absolute top-0 left-0 w-2 h-2 border-l border-t opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ borderColor: color }} />
+        <div className="absolute top-0 right-0 w-2 h-2 border-r border-t opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ borderColor: color }} />
+        <div className="absolute bottom-0 left-0 w-2 h-2 border-l border-b opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ borderColor: color }} />
+        <div className="absolute bottom-0 right-0 w-2 h-2 border-r border-b opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ borderColor: color }} />
+      </div>
     </motion.div>
   );
-}
+});
 
-interface CategoryNodeProps {
+/* ─── Category Card — FM for springs/interactions, CSS for loops ─── */
+const CategoryCard = memo(function CategoryCard({
+  category, index, expandedIndex, setExpandedIndex
+}: {
   category: typeof skillCategories[0];
-  activeCategory: string | null;
-  setActiveCategory: (name: string | null) => void;
-}
-
-function CategoryNode({ category, activeCategory, setActiveCategory }: CategoryNodeProps) {
-  const isActive = activeCategory === category.name;
-  const isAnyActive = activeCategory !== null;
+  index: number;
+  expandedIndex: number | null;
+  setExpandedIndex: (i: number | null) => void;
+}) {
+  const isExpanded = expandedIndex === index;
+  const isAnyExpanded = expandedIndex !== null;
   const Icon = category.icon;
+  const [isInView, setIsInView] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setIsInView(true);
+      },
+      { threshold: 0.2 }
+    );
+    if (cardRef.current) observer.observe(cardRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   return (
-    <div className="relative flex flex-col items-center">
-      {/* Dynamic Background Nebula for each node */}
+    /*
+     * Outer wrapper: FM handles entrance animation (slide up), dim/focus (opacity+scale),
+     * and col-span change. These are ONE-SHOT spring transitions, not infinite loops.
+     */
+    <motion.div
+      ref={cardRef}
+      className={`relative ${isExpanded ? 'col-span-1 md:col-span-2' : 'col-span-1'}`}
+      initial={{ opacity: 0, y: 100, rotateX: 25 }}
+      animate={isInView ? {
+        opacity: isAnyExpanded && !isExpanded ? 0.3 : 1,
+        y: 0,
+        rotateX: 0,
+        scale: isAnyExpanded && !isExpanded ? 0.92 : 1,
+        filter: isAnyExpanded && !isExpanded ? 'blur(3px) grayscale(0.5)' : 'blur(0px) grayscale(0)',
+      } : {}}
+      transition={{
+        delay: isInView && !isAnyExpanded ? index * 0.15 : 0,
+        duration: 0.6,
+        type: 'spring',
+        stiffness: 80,
+        damping: 16,
+      }}
+      style={{ perspective: '1200px' }}
+    >
+      {/* Inner card: FM handles hover lift */}
       <motion.div
-        className="absolute inset-0 -z-10"
-        animate={{
-          scale: isActive ? [1, 1.4, 1] : 1,
-          opacity: isActive ? 0.7 : 0.4
-        }}
-        transition={{ duration: 5, repeat: Infinity }}
-      >
-        <div
-          className="w-48 h-48 md:w-64 md:h-64 rounded-full blur-[80px]"
-          style={{ background: category.color }}
-        />
-      </motion.div>
-
-      <motion.button
-        layout
-        onClick={() => setActiveCategory(isActive ? null : category.name)}
-        className={`relative z-20 w-56 h-56 md:w-72 md:h-72 rounded-full flex flex-col items-center justify-center transition-all duration-700 ${isAnyActive && !isActive ? 'opacity-20 scale-75 grayscale blur-[2px]' : 'opacity-100 scale-100'
-          }`}
+        onClick={() => setExpandedIndex(isExpanded ? null : index)}
+        className="relative rounded-2xl cursor-pointer overflow-hidden group"
+        whileHover={!isExpanded ? { y: -6, scale: 1.02 } : {}}
+        transition={{ type: 'spring', stiffness: 300, damping: 20 }}
         style={{
-          background: `radial-gradient(circle at center, ${category.color}60 0%, ${category.color}20 100%)`,
-          border: `4px solid ${isActive ? category.color : 'rgba(255,255,255,0.3)'}`,
-          boxShadow: isActive
-            ? `0 0 140px ${category.color}, inset 0 0 70px ${category.color}`
-            : `0 0 50px ${category.color}40`
+          background: 'rgba(8, 8, 20, 0.85)',
+          border: `1px solid ${isExpanded ? category.color : 'rgba(255,255,255,0.08)'}`,
+          boxShadow: isExpanded
+            ? `0 0 80px ${category.shadowColor}, 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)`
+            : '0 8px 40px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)',
+          transition: 'box-shadow 0.6s ease, border-color 0.6s ease',
         }}
-        whileHover={{ scale: 1.1 }}
       >
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
-          className="absolute -inset-6 border-2 border-dashed rounded-full pointer-events-none opacity-40"
-          style={{ borderColor: category.color }}
+        {/* Animated top border gradient — CSS infinite loop */}
+        <div
+          className="absolute top-0 left-0 right-0 h-[2px] sg-gpu"
+          style={{
+            background: `linear-gradient(90deg, transparent, ${category.color}, transparent)`,
+            animation: isExpanded ? 'sg-border-pulse 2s ease-in-out infinite' : 'none',
+            opacity: isExpanded ? undefined : 0.3,
+          }}
         />
 
-        <AnimatePresence mode="wait">
-          {!isActive ? (
-            <motion.div
-              key="icon"
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              className="flex flex-col items-center"
-            >
-              <Icon className="w-16 h-16 mb-6" style={{ color: category.color }} />
-              <span className="text-base md:text-xl mono font-black tracking-widest uppercase" style={{ color: category.color }}>
-                {category.name}
+        {/* Background pulse when expanded — CSS infinite loop */}
+        {isExpanded && (
+          <div
+            className="absolute inset-0 pointer-events-none sg-gpu"
+            style={{
+              background: `radial-gradient(ellipse at center, ${category.color}08, transparent 70%)`,
+              animation: 'sg-bg-pulse 3s ease-in-out infinite',
+            }}
+          />
+        )}
+
+        {/* Floating code particles — CSS infinite loop */}
+        {isExpanded && (
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            {particlePool.map((p, i) => (
+              <span
+                key={i}
+                className="absolute mono text-[10px] select-none sg-gpu"
+                style={{
+                  color: `${category.color}35`,
+                  left: `${p.left}%`,
+                  top: `${p.top}%`,
+                  animation: `sg-float-particle ${p.duration}s ease-out infinite`,
+                  animationDelay: `${p.delay}s`,
+                }}
+              >
+                {p.char}
               </span>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="desc"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="flex flex-col items-center px-8 text-center"
-            >
-              <span className="text-sm md:text-lg mono font-black tracking-widest uppercase mb-4 text-white">
+            ))}
+          </div>
+        )}
+
+        <div className="relative z-10 p-8">
+          {/* Header */}
+          <div className="flex items-center gap-5 mb-6">
+            {/* Icon container with CSS rotating border */}
+            <div className="relative">
+              <div
+                className="w-16 h-16 rounded-xl flex items-center justify-center relative overflow-hidden"
+                style={{
+                  background: `linear-gradient(135deg, ${category.color}20, ${category.color}05)`,
+                  border: `1px solid ${category.color}40`,
+                  boxShadow: isExpanded ? `0 0 30px ${category.color}40` : 'none',
+                  transition: 'box-shadow 0.6s ease',
+                }}
+              >
+                {/* Rotating border — CSS infinite loop */}
+                <div
+                  className="absolute inset-0 rounded-xl sg-gpu"
+                  style={{
+                    background: `conic-gradient(from 0deg, transparent, ${category.color}40, transparent, ${category.color}40, transparent)`,
+                    animation: 'sg-rotate 4s linear infinite',
+                  }}
+                />
+                <div className="absolute inset-[1px] rounded-xl" style={{ background: `linear-gradient(135deg, rgba(8,8,20,0.95), rgba(8,8,20,0.8))` }} />
+                <Icon className="w-7 h-7 relative z-10" style={{ color: category.color }} />
+              </div>
+
+              {/* Status dot — CSS infinite loop */}
+              <div
+                className="absolute -top-1 -right-1 w-3 h-3 rounded-full sg-gpu"
+                style={{
+                  background: category.color,
+                  boxShadow: `0 0 10px ${category.color}`,
+                  animation: 'sg-pulse-dot 1.5s ease-in-out infinite',
+                }}
+              />
+            </div>
+
+            <div className="flex-1">
+              <h3 className="text-2xl md:text-3xl font-black tracking-tight text-white">
                 {category.name}
-              </span>
-              <p className="text-xs md:text-sm text-gray-200 font-bold mono leading-relaxed uppercase max-w-[200px]">
-                {category.description}
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                <span
+                  className="inline-block ml-3 mono text-xs font-normal tracking-widest uppercase"
+                  style={{ color: `${category.color}90` }}
+                >
+                  [{String(index + 1).padStart(2, '0')}]
+                </span>
+              </h3>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="w-2 h-2 rounded-full" style={{ background: category.color }} />
+                <span className="mono text-xs uppercase tracking-widest" style={{ color: `${category.color}80` }}>
+                  {category.skills.length} modules loaded
+                </span>
+              </div>
+            </div>
 
-        {/* Rapid Pulse Wave */}
-        <AnimatePresence>
-          {isActive && (
+            {/* Expand indicator — FM spring rotation */}
             <motion.div
-              initial={{ scale: 0.8, opacity: 1 }}
-              animate={{ scale: 2.2, opacity: 0 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 rounded-full border-4"
-              style={{ borderColor: category.color }}
-              transition={{ duration: 2, repeat: Infinity }}
-            />
-          )}
-        </AnimatePresence>
-      </motion.button>
-
-
-
-      {/* Expanded Orbiting Skill System */}
-      <div className="absolute inset-0 z-10">
-        {category.skills.map((skill, i) => {
-          const angle = (i * (360 / category.skills.length)) * (Math.PI / 180);
-          const radius = isActive ? 300 : 180;
-          const x = Math.cos(angle) * radius;
-          const y = Math.sin(angle) * radius;
-
-          return (
-            <motion.div
-              key={skill}
-              className="absolute top-1/2 left-1/2"
-              animate={{
-                x: x,
-                y: y
+              animate={{ rotate: isExpanded ? 45 : 0 }}
+              transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+              className="w-10 h-10 rounded-full flex items-center justify-center"
+              style={{
+                border: `1px solid ${category.color}40`,
+                background: `${category.color}10`,
               }}
-              transition={{ type: 'spring', stiffness: 60, damping: 12 }}
-              style={{ marginLeft: -50, marginTop: -25 }}
             >
-              <FloatingSkill
-                name={skill}
+              <span className="text-lg" style={{ color: category.color }}>+</span>
+            </motion.div>
+          </div>
+
+          {/* Description */}
+          <p className="text-sm text-gray-400 mono leading-relaxed mb-6 max-w-xl">
+            {category.description}
+          </p>
+
+          {/* Skills Pills */}
+          <div className={`flex flex-wrap gap-3 ${isExpanded ? 'mt-4' : ''}`}>
+            {category.skills.map((skill, i) => (
+              <SkillPill
+                key={skill.name}
+                name={skill.name}
                 color={category.color}
                 index={i}
-                isActive={isActive}
+                categoryIndex={index}
               />
-            </motion.div>
-          );
-        })}
-      </div>
-    </div>
+            ))}
+          </div>
+
+          {/* Expanded: Skill level bars with FM spring entrance */}
+          <AnimatePresence>
+            {isExpanded && (
+              <motion.div
+                initial={{ opacity: 0, height: 0, y: 20 }}
+                animate={{ opacity: 1, height: 'auto', y: 0 }}
+                exit={{ opacity: 0, height: 0, y: -20 }}
+                transition={{ duration: 0.5, type: 'spring', stiffness: 100, damping: 18 }}
+                className="mt-8 space-y-4 overflow-hidden"
+              >
+                {/* Divider — FM one-shot scale + CSS infinite pulse */}
+                <motion.div
+                  className="h-px w-full sg-gpu"
+                  style={{
+                    background: `linear-gradient(90deg, transparent, ${category.color}, transparent)`,
+                  }}
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ delay: 0.2, duration: 0.6 }}
+                />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
+                  {category.skills.map((skill, i) => (
+                    <motion.div
+                      key={skill.name}
+                      initial={{ opacity: 0, x: i % 2 === 0 ? -40 : 40 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.1 * i + 0.3, type: 'spring', stiffness: 120, damping: 16 }}
+                      className="relative"
+                    >
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="mono text-xs font-bold tracking-wider" style={{ color: category.color }}>
+                          {skill.name}
+                        </span>
+                        <motion.span
+                          className="mono text-xs"
+                          style={{ color: `${category.color}90` }}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.5 + i * 0.1 }}
+                        >
+                          {skill.level}%
+                        </motion.span>
+                      </div>
+                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: `${category.color}15` }}>
+                        <motion.div
+                          className="h-full rounded-full relative sg-gpu"
+                          style={{
+                            background: `linear-gradient(90deg, ${category.color}80, ${category.color})`,
+                            boxShadow: `0 0 15px ${category.color}60`,
+                          }}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${skill.level}%` }}
+                          transition={{ delay: 0.3 + i * 0.1, duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
+                        >
+                          {/* Shine — CSS infinite loop */}
+                          <div
+                            className="absolute inset-0 sg-gpu"
+                            style={{
+                              background: `linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)`,
+                              animation: 'sg-shine-bar 2s ease-in-out infinite',
+                              animationDelay: `${1.5 + i * 0.15}s`,
+                            }}
+                          />
+                        </motion.div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+
+                {/* Stats row */}
+                <motion.div
+                  className="flex items-center gap-6 mt-6 pt-4"
+                  style={{ borderTop: `1px solid ${category.color}15` }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.8 }}
+                >
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-3 h-3" style={{ color: category.color }} />
+                    <span className="mono text-[10px] uppercase tracking-widest text-gray-500">
+                      Active modules: {category.skills.length}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-1.5 h-1.5 rounded-full sg-gpu"
+                      style={{ background: '#00ff88', animation: 'sg-pulse-opacity 1.5s ease-in-out infinite' }}
+                    />
+                    <span className="mono text-[10px] uppercase tracking-widest text-gray-500">
+                      Status: Operational
+                    </span>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Bottom gradient line */}
+        <div
+          className="h-px w-full"
+          style={{
+            background: `linear-gradient(90deg, transparent, ${category.color}30, transparent)`,
+          }}
+        />
+      </motion.div>
+    </motion.div>
   );
-}
+});
 
+/* ─── Main Component ─── */
 export default function SkillsGalaxy() {
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const containerRef = useRef(null);
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ["start end", "end start"]
-  });
-
-  const rotate = useTransform(scrollYProgress, [0, 1], [0, 15]);
-  const scale = useTransform(scrollYProgress, [0, 0.5, 1], [0.9, 1, 0.9]);
 
   return (
-    <section id="skills" ref={containerRef} className="min-h-[140vh] relative py-40 px-4 bg-[#010101] overflow-hidden flex items-center">
-      {/* Background Starfield Layer */}
-      <div className="absolute inset-0 pointer-events-none opacity-40">
-        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(#fff_1px,transparent_1px)] bg-[size:40px_40px]" />
+    <section id="skills" ref={containerRef} className="min-h-screen relative py-32 md:py-40 px-4 md:px-8 bg-[#010101] overflow-hidden">
+      <style dangerouslySetInnerHTML={{ __html: cssAnimations }} />
+
+      {/* ─── Background Layers ─── */}
+
+      {/* Grid pattern — static */}
+      <div className="absolute inset-0 pointer-events-none opacity-[0.03]">
+        <div className="absolute inset-0" style={{
+          backgroundImage: `
+            linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)
+          `,
+          backgroundSize: '60px 60px',
+        }} />
       </div>
 
-      {/* Massive Nebula Blobs for Deep Intergalactic Feel */}
-      {[...Array(5)].map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute w-[60vw] h-[60vw] rounded-full mix-blend-screen opacity-[0.08] blur-[180px] pointer-events-none"
+      {/* Gradient orbs — CSS infinite loop */}
+      {skillCategories.map((cat, i) => (
+        <div
+          key={cat.name}
+          className="absolute rounded-full pointer-events-none mix-blend-screen sg-gpu"
           style={{
-            background: i % 2 === 0 ? '#00f0ff' : '#ff006e',
-            left: `${(i * 30) % 100}%`,
-            top: `${(i * 45) % 100}%`
+            width: '35vw',
+            height: '35vw',
+            background: `radial-gradient(circle, ${cat.color}06, transparent 70%)`,
+            left: `${[5, 55, 10, 60][i]}%`,
+            top: `${[10, 30, 60, 75][i]}%`,
+            animation: `sg-orb ${10 + i * 3}s ease-in-out infinite`,
+            animationDelay: `${i * 2}s`,
           }}
-          animate={{
-            scale: [1, 1.3, 1],
-            opacity: [0.05, 0.1, 0.05]
-          }}
-          transition={{ duration: 15 + i * 4, repeat: Infinity, ease: 'easeInOut' }}
         />
       ))}
 
-      <div className="max-w-7xl mx-auto w-full relative z-10 font-sans">
-        {/* TITAN Background Text */}
-        <h2 className="text-[20vw] font-black text-white/[0.04] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 select-none tracking-tighter whitespace-nowrap z-0">
-          SYSTEM_CORE
-        </h2>
-
-        <motion.div className="text-center mb-40 md:mb-64 relative z-10">
-          <motion.div
-            initial={{ scale: 0 }}
-            whileInView={{ scale: 1 }}
-            className="inline-flex items-center gap-4 px-10 py-4 rounded-full bg-white/5 border border-white/30 mb-8 backdrop-blur-3xl shadow-[0_0_50px_rgba(255,255,255,0.1)]"
-          >
-            <Orbit className="w-6 h-6 text-cyan-400 animate-spin-slow" />
-            <span className="mono text-sm text-white uppercase tracking-[0.6em] font-black">Neural Galaxy v2.0</span>
-          </motion.div>
-          <h2 className="text-6xl md:text-9xl font-black text-white relative leading-[1.1] tracking-tighter">
-            Architecting Your <br />
-            <span className="bg-gradient-to-r from-cyan-400 via-white to-purple-500 bg-clip-text text-transparent italic drop-shadow-[0_0_30px_rgba(6,182,212,0.5)]">Digital Verse</span>
-          </h2>
-        </motion.div>
-
-        {/* The Galaxy - High Performance CSS Grid */}
-        <div className="relative h-[1000px] flex items-center justify-center">
-          <motion.div
-            style={{ rotate, scale }}
-            className="w-full h-full max-w-6xl relative grid grid-cols-2 gap-48 md:gap-64"
-          >
-            {skillCategories.map((category) => (
-              <CategoryNode
-                key={category.name}
-                category={category}
-                activeCategory={activeCategory}
-                setActiveCategory={setActiveCategory}
-              />
-            ))}
-          </motion.div>
-
-          {/* Central Pulsing Singularlty */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-            <motion.div
-              className="w-64 h-64 rounded-full border-2 border-white/5 flex items-center justify-center bg-transparent backdrop-blur-[2px]"
-              animate={{ rotate: 360 }}
-              transition={{ duration: 60, repeat: Infinity, ease: 'linear' }}
-            >
-              <div className="w-2 h-2 bg-white rounded-full shadow-[0_0_60px_#fff] scale-150 animate-pulse" />
-              <div className="absolute inset-0 bg-gradient-to-tr from-cyan-500/20 via-white/10 to-purple-500/20 rounded-full blur-xl" />
-              {[...Array(6)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  className="absolute w-[200%] h-[1px]"
-                  style={{ rotate: `${i * 30}deg`, background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent)' }}
-                  animate={{ opacity: [0.1, 0.4, 0.1] }}
-                  transition={{ duration: 3, repeat: Infinity, delay: i * 0.5 }}
-                />
-              ))}
-            </motion.div>
-          </div>
-        </div>
-
-        {/* Navigation Indicator */}
-        <motion.div
-          animate={{ opacity: activeCategory ? 0.2 : 1 }}
-          className="text-center mt-48 flex flex-col items-center gap-6"
-        >
-          <div className="flex gap-2">
-            {[...Array(3)].map((_, i) => (
-              <motion.div
-                key={i}
-                className="w-2 h-2 rounded-full bg-cyan-500"
-                animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
-                transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.2 }}
-              />
-            ))}
-          </div>
-          <p className="text-sm md:text-base mono text-white uppercase tracking-[0.5em] font-black drop-shadow-lg scale-110">
-            {activeCategory ? 'SYSTEMS_ONLINE' : 'SYNC_WITH_CORE'}
-          </p>
-        </motion.div>
-      </div>
-
-      {/* Global Particle Storm */}
-      <div className="absolute inset-0 pointer-events-none z-0">
-        {[...Array(120)].map((_, i) => (
-          <motion.div
+      {/* Data stream lines — CSS infinite loop */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {dataStreams.map((s, i) => (
+          <div
             key={i}
-            className="absolute w-px h-[2px] bg-white/40 rounded-full"
-            initial={{
-              x: Math.random() * 100 + 'vw',
-              y: Math.random() * 100 + 'vh',
-              opacity: Math.random()
-            }}
-            animate={{
-              y: [0, -200],
-              opacity: [0, 1, 0],
-              scale: [1, 2, 1]
-            }}
-            transition={{
-              duration: 4 + Math.random() * 12,
-              repeat: Infinity,
-              ease: 'linear'
+            className="absolute h-px sg-gpu"
+            style={{
+              width: `${s.width}px`,
+              background: `linear-gradient(90deg, transparent, ${skillCategories[s.colorIdx].color}60, transparent)`,
+              left: `${s.left}%`,
+              top: `${s.top}%`,
+              animation: `sg-stream ${s.duration}s ease-in-out infinite`,
+              animationDelay: `${s.delay}s`,
             }}
           />
         ))}
       </div>
+
+      {/* ─── Content ─── */}
+      <div className="max-w-6xl mx-auto w-full relative z-10">
+        {/* Section Header */}
+        <motion.div
+          className="text-center mb-20 md:mb-28 relative"
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+        >
+          {/* Giant background text */}
+          <h2 className="text-[15vw] md:text-[12vw] font-black text-white/[0.02] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 select-none tracking-tighter whitespace-nowrap z-0 pointer-events-none">
+            SKILLS
+          </h2>
+
+          {/* Badge — FM entrance spring */}
+          <motion.div
+            initial={{ scale: 0, rotate: -180 }}
+            whileInView={{ scale: 1, rotate: 0 }}
+            viewport={{ once: true }}
+            transition={{ type: 'spring', stiffness: 150, damping: 12 }}
+            className="inline-flex items-center gap-3 px-8 py-3 rounded-full bg-white/[0.03] border border-white/10 mb-8"
+          >
+            <div className="sg-gpu" style={{ animation: 'sg-rotate 8s linear infinite' }}>
+              <Sparkles className="w-4 h-4 text-cyan-400" />
+            </div>
+            <span className="mono text-xs text-white/80 uppercase tracking-[0.5em] font-bold">Core Systems</span>
+            <div
+              className="w-1.5 h-1.5 rounded-full bg-green-400 sg-gpu"
+              style={{ animation: 'sg-pulse-opacity 1.5s ease-in-out infinite' }}
+            />
+          </motion.div>
+
+          {/* Main title — FM entrance spring */}
+          <motion.h2
+            className="text-5xl md:text-8xl lg:text-9xl font-black text-white relative leading-[1] tracking-tighter"
+            initial={{ y: 60, opacity: 0 }}
+            whileInView={{ y: 0, opacity: 1 }}
+            viewport={{ once: true }}
+            transition={{ delay: 0.1, duration: 0.8, type: 'spring' }}
+          >
+            <span className="relative">
+              Tech
+              <span
+                className="absolute -inset-2 pointer-events-none sg-gpu"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(0,240,255,0.1), transparent)',
+                  filter: 'blur(20px)',
+                  animation: 'sg-glow-soft 3s ease-in-out infinite',
+                }}
+              />
+            </span>
+            {' '}
+            <span className="bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-500 bg-clip-text text-transparent">
+              Arsenal
+            </span>
+          </motion.h2>
+
+          <motion.p
+            className="mono text-sm text-gray-500 mt-6 tracking-widest uppercase"
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+            transition={{ delay: 0.4 }}
+          >
+            Tap a category to deploy its modules
+          </motion.p>
+        </motion.div>
+
+        {/* ─── Skills Grid ─── */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+          {skillCategories.map((category, index) => (
+            <CategoryCard
+              key={category.name}
+              category={category}
+              index={index}
+              expandedIndex={expandedIndex}
+              setExpandedIndex={setExpandedIndex}
+            />
+          ))}
+        </div>
+
+        {/* Bottom status bar */}
+        <motion.div
+          className="mt-20 flex flex-col items-center gap-4"
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+          transition={{ delay: 0.6 }}
+        >
+          <div className="flex items-center gap-3">
+            {[...Array(4)].map((_, i) => (
+              <motion.div
+                key={i}
+                className="w-8 h-1 rounded-full"
+                animate={{
+                  background: expandedIndex === i ? skillCategories[i].color : 'rgba(255,255,255,0.1)',
+                  boxShadow: expandedIndex === i ? `0 0 15px ${skillCategories[i].color}` : '0 0 0px transparent',
+                }}
+                transition={{ duration: 0.4 }}
+              />
+            ))}
+          </div>
+          <p className="mono text-[10px] text-gray-600 uppercase tracking-[0.4em]">
+            {expandedIndex !== null
+              ? `// ${skillCategories[expandedIndex].name.toUpperCase()}_SYSTEMS → DEPLOYED`
+              : '// ALL_SYSTEMS → STANDBY'}
+          </p>
+        </motion.div>
+      </div>
+
+      {/* Vignette overlay */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.6) 100%)',
+      }} />
     </section>
   );
 }

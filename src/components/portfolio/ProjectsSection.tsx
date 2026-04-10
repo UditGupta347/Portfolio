@@ -271,8 +271,13 @@ function ProjectModal({ project, onClose }) {
   );
 }
 
+const INITIAL_COUNT = 4;
+
 export default function ProjectsSection() {
   const [selectedProject, setSelectedProject] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+  const visibleProjects = showAll ? projects : projects.slice(0, INITIAL_COUNT);
+  const hasMore = projects.length > INITIAL_COUNT;
 
   return (
     <section className="min-h-screen relative py-24 px-4 md:px-8">
@@ -319,33 +324,40 @@ export default function ProjectsSection() {
 
         {/* Projects Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {projects.map((project, index) => (
-            <ProjectCard
-              key={project.id}
-              project={project}
-              index={index}
-              isSelected={selectedProject?.id === project.id}
-              onClick={() => setSelectedProject(project)}
-            />
-          ))}
+          <AnimatePresence mode="popLayout">
+            {visibleProjects.map((project, index) => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                index={index}
+                isSelected={selectedProject?.id === project.id}
+                onClick={() => setSelectedProject(project)}
+              />
+            ))}
+          </AnimatePresence>
         </div>
 
-        {/* View All Button */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.6 }}
-          className="text-center mt-12"
-        >
-          <button className="group relative px-8 py-4 overflow-hidden rounded-xl">
-            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 group-hover:from-cyan-500/30 group-hover:to-purple-500/30 transition-all" />
-            <div className="absolute inset-[1px] bg-gray-900 rounded-xl" />
-            <span className="relative z-10 mono text-gray-300 flex items-center gap-2">
-              View All Projects
-              <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </span>
-          </button>
-        </motion.div>
+        {/* View All Button — only shown when there are more than INITIAL_COUNT projects */}
+        {hasMore && !showAll && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.6 }}
+            className="text-center mt-12"
+          >
+            <button
+              onClick={() => setShowAll(true)}
+              className="group relative px-8 py-4 overflow-hidden rounded-xl"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 group-hover:from-cyan-500/30 group-hover:to-purple-500/30 transition-all" />
+              <div className="absolute inset-[1px] bg-gray-900 rounded-xl" />
+              <span className="relative z-10 mono text-gray-300 flex items-center gap-2">
+                View All Projects ({projects.length - INITIAL_COUNT} more)
+                <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </span>
+            </button>
+          </motion.div>
+        )}
       </div>
 
       {/* Project Modal */}
